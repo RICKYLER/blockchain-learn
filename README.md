@@ -1,6 +1,6 @@
 # Blockchain Learning Projects in Rust
 
-A comprehensive collection of blockchain implementations in Rust, demonstrating progressive complexity from basic concepts to production-ready systems. This repository contains three distinct blockchain projects that build upon each other, showcasing key concepts like Proof-of-Work, digital signatures, Merkle trees, and distributed systems.
+A comprehensive collection of blockchain implementations in Rust, demonstrating progressive complexity from basic concepts to production-ready systems. This repository contains four distinct blockchain projects that build upon each other, showcasing key concepts like Proof-of-Work, digital signatures, Merkle trees, distributed systems, and high-performance ledger databases.
 
 ## 🚀 Project Overview
 
@@ -35,6 +35,17 @@ This repository contains a learning path through blockchain development, with ea
 - ✅ Production deployment considerations
 - 🎯 **Best for**: Building real-world blockchain applications
 
+### 📁 [rust-04/ledgerdb](./rust-04/ledgerdb/) - High-Performance Ledger Database
+**Enterprise-grade blockchain with advanced features**
+- ✅ All features from rust-03
+- ✅ High-performance embedded database (Sled)
+- ✅ WebSocket real-time updates
+- ✅ Advanced cryptographic operations
+- ✅ Modular architecture with comprehensive utilities
+- ✅ Production-ready logging and error handling
+- ✅ Scalable transaction processing
+- 🎯 **Best for**: Enterprise blockchain applications and high-throughput systems
+
 ## 🛠️ Prerequisites
 
 - **Rust**: Install from [rustup.rs](https://rustup.rs/)
@@ -66,6 +77,12 @@ cd rust-03/chain_kv_full
 cargo run -- server --port 3000
 ```
 
+### Option 4: Experience High-Performance Ledger
+```bash
+cd rust-04/ledgerdb
+cargo run
+```
+
 ## 📚 Learning Path
 
 ### 🎓 Beginner (rust-01)
@@ -86,6 +103,13 @@ cargo run -- server --port 3000
 3. **Study async mining** and concurrent operations
 4. **Deploy and scale** the blockchain system
 
+### 🎓 Expert (rust-04)
+1. **Explore the modular architecture** and advanced utilities
+2. **Test WebSocket real-time features** for live updates
+3. **Analyze high-performance database operations** with Sled
+4. **Study enterprise-grade error handling** and logging
+5. **Implement custom cryptographic operations** and validation
+
 ## 🔧 Key Technologies
 
 - **Rust**: Systems programming language for performance and safety
@@ -95,6 +119,9 @@ cargo run -- server --port 3000
 - **Proof-of-Work**: Consensus mechanism for decentralization
 - **Axum**: Modern async web framework for APIs
 - **Serde**: Serialization framework for data persistence
+- **Sled**: High-performance embedded database
+- **WebSockets**: Real-time bidirectional communication
+- **Tokio**: Async runtime for concurrent operations
 
 ## 🏗️ Architecture Concepts
 
