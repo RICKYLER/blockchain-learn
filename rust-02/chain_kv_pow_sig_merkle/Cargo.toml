@@ -1,0 +1,13 @@
+[package]
+name = "chain_kv_pow_sig_merkle"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sha2 = "0.10.9"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
+hex = "0.4.3"
+chrono = { version = "0.4.41", default-features = false, features = ["clock"] }
+ed25519-dalek = { version = "2.2.0", features = ["std", "rand_core"] }
+rand = "0.8.5"
