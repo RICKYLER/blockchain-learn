@@ -127,7 +127,7 @@ impl Default for BlockMetadata {
 }
 
 /// Complete block structure
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Block {
     /// Block header
     pub header: BlockHeader,
@@ -229,8 +229,9 @@ impl Block {
 
     /// Verify the Merkle root matches the transactions
     pub fn verify_merkle_root(&self) -> bool {
-        let calculated_root = self.merkle_tree().root();
-        calculated_root == self.header.merkle_root
+        let merkle_tree = self.merkle_tree();
+        let calculated_root = merkle_tree.root();
+        *calculated_root == self.header.merkle_root
     }
 
     /// Get a transaction by its hash
@@ -247,6 +248,12 @@ impl Block {
     /// Check if block contains a specific transaction
     pub fn contains_transaction(&self, tx_hash: &Hash256) -> bool {
         self.get_transaction(tx_hash).is_some()
+    }
+
+    /// Generate a Merkle proof for a transaction at a specific index
+    pub fn generate_merkle_proof(&self, tx_index: usize) -> Result<crate::crypto::MerkleProof> {
+        let merkle_tree = self.merkle_tree();
+        merkle_tree.generate_proof_by_index(tx_index)
     }
 
     /// Get all transaction hashes in this block
@@ -327,10 +334,11 @@ impl Block {
         
         // Validate transaction count
         if self.header.transaction_count != self.transactions.len() as u32 {
-            return Err(ValidationError::InvalidTransactionCount {
-                expected: self.transactions.len(),
-                actual: self.header.transaction_count as usize,
-            }.into());
+            return Err(ValidationError::InvalidTransactionCount(
+                format!("Expected {} transactions, found {}", 
+                    self.transactions.len(), 
+                    self.header.transaction_count)
+            ).into());
         }
         
         Ok(())

@@ -93,6 +93,7 @@ pub struct MiningResult {
 }
 
 /// Proof of Work miner
+#[derive(Debug)]
 pub struct ProofOfWorkMiner {
     config: ProofOfWorkConfig,
     is_mining: Arc<AtomicBool>,

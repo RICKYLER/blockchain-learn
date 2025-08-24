@@ -398,7 +398,7 @@ impl PersistentStorage {
             .map_err(|e| StorageError::DatabaseError(e.to_string()))?;
         
         // Update address index
-        self.update_address_index(&utxo_entry.output.recipient_address, utxo_id, false)?;
+        self.update_address_index(&utxo_entry.output.recipient, utxo_id, false)?;
         
         Ok(())
     }

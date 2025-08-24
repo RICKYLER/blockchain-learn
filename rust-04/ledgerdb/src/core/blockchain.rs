@@ -427,7 +427,9 @@ impl Blockchain {
     fn rebuild_utxo_set(&mut self) -> Result<()> {
         self.utxo_set.clear();
         
-        for block in &self.blocks {
+        // Clone the blocks to avoid borrowing conflicts
+        let blocks = self.blocks.clone();
+        for block in &blocks {
             self.apply_block_to_utxo_set(block)?;
         }
         
@@ -505,8 +507,10 @@ impl Blockchain {
         self.stats.height = self.blocks.len() as u64;
         
         if let Some(latest_block) = self.get_latest_block() {
-            self.stats.latest_block_hash = latest_block.hash();
-            self.stats.current_difficulty = latest_block.header.difficulty;
+            let latest_hash = latest_block.hash();
+            let latest_difficulty = latest_block.header.difficulty;
+            self.stats.latest_block_hash = latest_hash;
+            self.stats.current_difficulty = latest_difficulty;
         }
         
         self.stats.total_transactions = self.blocks.iter()
@@ -521,9 +525,10 @@ impl Blockchain {
         
         // Calculate average block time
         if self.recent_block_times.len() > 1 {
-            let total_time: i64 = self.recent_block_times.windows(2)
+            let times: Vec<_> = self.recent_block_times.iter().collect();
+            let total_time: i64 = times.windows(2)
                 .map(|window| {
-                    window[1].signed_duration_since(window[0]).num_seconds()
+                    window[1].signed_duration_since(*window[0]).num_seconds()
                 })
                 .sum();
             
@@ -632,7 +637,7 @@ impl Blockchain {
     /// Get all UTXOs for an address
     pub fn get_utxos_for_address(&self, address: &crate::crypto::Address) -> Vec<&UtxoEntry> {
         self.utxo_set.values()
-            .filter(|utxo| utxo.output.recipient_address == *address)
+            .filter(|utxo| utxo.output.recipient == *address)
             .collect()
     }
 
@@ -642,6 +647,35 @@ impl Blockchain {
             .iter()
             .map(|utxo| utxo.output.amount)
             .sum()
+    }
+
+    /// Get the current difficulty
+    pub fn get_current_difficulty(&self) -> u32 {
+        self.stats.current_difficulty
+    }
+
+    /// Get blocks until next difficulty adjustment
+    pub fn blocks_until_difficulty_adjustment(&self) -> u64 {
+        let current_height = self.height();
+        let interval = self.config.difficulty_adjustment_interval;
+        interval - (current_height % interval)
+    }
+
+    /// Get all UTXOs
+    pub fn get_all_utxos(&self) -> Vec<&UtxoEntry> {
+        self.utxo_set.values().collect()
+    }
+
+    /// Find transaction in blockchain and return block with transaction index
+    pub fn find_transaction_in_block(&self, tx_hash: &Hash256) -> Option<(&Block, usize)> {
+        for block in &self.blocks {
+            for (index, tx) in block.transactions.iter().enumerate() {
+                if &tx.hash() == tx_hash {
+                    return Some((block, index));
+                }
+            }
+        }
+        None
     }
 
     /// Verify the entire blockchain

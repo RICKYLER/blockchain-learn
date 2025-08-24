@@ -34,7 +34,7 @@ impl Hash256 {
         if slice.len() != 32 {
             return Err(CryptoError::InvalidFormat(
                 "Hash must be exactly 32 bytes".to_string()
-            ));
+            ).into());
         }
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(slice);
@@ -59,12 +59,12 @@ impl Hash256 {
     /// Create from hex string
     pub fn from_hex(hex_str: &str) -> Result<Self> {
         let bytes = hex::decode(hex_str)
-            .map_err(|e| CryptoError::InvalidFormat(format!("Invalid hex: {}", e)))?;
+            .map_err(|e| LedgerError::from(CryptoError::InvalidFormat(format!("Invalid hex: {}", e))))?;
         
         if bytes.len() != 32 {
-            return Err(CryptoError::InvalidFormat(
+            return Err(LedgerError::from(CryptoError::InvalidFormat(
                 "Hash must be exactly 32 bytes".to_string()
-            ));
+            )));
         }
         
         let mut hash_bytes = [0u8; 32];
@@ -112,8 +112,15 @@ impl AsRef<[u8]> for Hash256 {
 pub struct Signature {
     /// The signature algorithm used
     pub algorithm: SignatureAlgorithm,
-    /// The signature bytes
+    /// The signature data
     pub data: Vec<u8>,
+}
+
+impl Signature {
+    /// Create a new signature
+    pub fn new(algorithm: SignatureAlgorithm, data: Vec<u8>) -> Self {
+        Self { algorithm, data }
+    }
 }
 
 /// Supported signature algorithms
@@ -151,6 +158,11 @@ impl PublicKey {
     pub fn to_hex(&self) -> String {
         hex::encode(&self.data)
     }
+
+    /// Convert to address
+    pub fn to_address(&self) -> Address {
+        Address::from_public_key(self)
+    }
 }
 
 /// Blockchain address derived from public key
@@ -178,6 +190,16 @@ impl Address {
     pub fn from_hex(hex_str: &str) -> Result<Self> {
         let hash = Hash256::from_hex(hex_str)?;
         Ok(Self(hash))
+    }
+
+    /// Create from string (alias for from_hex)
+    pub fn from_string(hex_str: &str) -> Result<Self> {
+        Self::from_hex(hex_str)
+    }
+
+    /// Convert to string (alias for to_hex)
+    pub fn to_string(&self) -> String {
+        self.to_hex()
     }
 }
 

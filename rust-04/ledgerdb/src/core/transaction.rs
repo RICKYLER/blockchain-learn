@@ -130,7 +130,7 @@ impl TransactionOutput {
 }
 
 /// Transaction fee calculation
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionFee {
     /// Base fee per transaction
     pub base_fee: u64,
@@ -138,6 +138,12 @@ pub struct TransactionFee {
     pub per_byte_fee: u64,
     /// Priority multiplier (1.0 = normal, 2.0 = high priority)
     pub priority_multiplier: f64,
+}
+
+impl TransactionFee {
+    pub fn calculate_total_fee(&self, transaction_size: usize) -> u64 {
+        self.base_fee + (self.per_byte_fee * transaction_size as u64) + (self.base_fee as f64 * (self.priority_multiplier - 1.0)) as u64
+    }
 }
 
 impl Default for TransactionFee {
@@ -151,7 +157,7 @@ impl Default for TransactionFee {
 }
 
 /// Main transaction structure
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Transaction {
     /// Unique transaction identifier
     pub id: String,
@@ -323,10 +329,9 @@ impl Transaction {
 
         let total_output = self.total_output_amount();
         if total_input < total_output {
-            return Err(ValidationError::InsufficientFunds {
-                required: total_output,
-                available: total_input,
-            }.into());
+            return Err(ValidationError::InsufficientFunds(
+                format!("Insufficient funds: required {}, available {}", total_output, total_input)
+            ).into());
         }
 
         Ok(())

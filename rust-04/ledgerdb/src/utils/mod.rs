@@ -507,7 +507,8 @@ pub mod collections {
 
 /// Random utilities
 pub mod random {
-    use rand::{thread_rng, Rng};
+    use rand::prelude::*;
+
 
     
     /// Generate random bytes
@@ -543,7 +544,7 @@ pub mod random {
         
         (0..length)
             .map(|_| {
-                let idx = rng.gen_range(0..CHARSET.len());
+                let idx = rng.random_range(0..CHARSET.len());
                 CHARSET[idx] as char
             })
             .collect()
@@ -557,7 +558,6 @@ pub mod random {
     
     /// Choose a random element from a slice
     pub fn choose<T>(slice: &[T]) -> Option<&T> {
-        use rand::seq::SliceRandom;
         slice.choose(&mut thread_rng())
     }
     

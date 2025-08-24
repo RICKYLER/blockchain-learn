@@ -9,6 +9,115 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Health check response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HealthResponse {
+    pub status: String,
+    pub timestamp: DateTime<Utc>,
+    pub version: String,
+    pub uptime: u64,
+}
+
+/// Blockchain info response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BlockchainInfoResponse {
+    pub height: u64,
+    pub latest_block_hash: Hash256,
+    pub total_transactions: u64,
+    pub total_supply: u64,
+    pub difficulty: u32,
+    pub network_hash_rate: f64,
+}
+
+/// Mining status response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MiningStatusResponse {
+    pub is_mining: bool,
+    pub current_block_height: u64,
+    pub difficulty: u32,
+    pub hash_rate: f64,
+}
+
+/// Address balance response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AddressBalanceResponse {
+    pub address: Address,
+    pub balance: u64,
+    pub utxo_count: usize,
+}
+
+/// UTXO response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UtxoResponse {
+    pub utxo_id: String,
+    pub tx_hash: Hash256,
+    pub output_index: u32,
+    pub amount: u64,
+    pub address: Address,
+    pub recipient: Address,
+    pub block_height: u64,
+    pub is_spent: bool,
+}
+
+/// Network status response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NetworkStatusResponse {
+    pub peer_count: u32,
+    pub is_synced: bool,
+    pub sync_progress: f64,
+}
+
+/// System metrics response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SystemMetricsResponse {
+    pub memory_usage: u64,
+    pub cpu_usage: f64,
+    pub disk_usage: u64,
+    pub network_io: NetworkIoMetrics,
+}
+
+/// Network IO metrics
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NetworkIoMetrics {
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub packets_sent: u64,
+    pub packets_received: u64,
+}
+
+/// Create transaction request
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateTransactionRequest {
+    pub from: Address,
+    pub to: Address,
+    pub amount: u64,
+    pub fee: Option<u64>,
+}
+
+/// Start mining request
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StartMiningRequest {
+    pub address: Address,
+    pub threads: Option<u32>,
+}
+
+/// Paginated response wrapper
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PaginatedResponse<T> {
+    pub data: Vec<T>,
+    pub total: u64,
+    pub page: u32,
+    pub per_page: u32,
+    pub total_pages: u32,
+}
+
+/// Pagination parameters
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PaginationParams {
+    pub page: Option<u32>,
+    pub per_page: Option<u32>,
+}
+
 /// Standard API response wrapper
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
@@ -110,9 +219,9 @@ impl BlockResponse {
     /// Create a block response from a block
     pub fn from_block(block: Block, current_height: u64) -> Self {
         let size = bincode::serialize(&block).map(|b| b.len()).unwrap_or(0);
-        let confirmations = current_height.saturating_sub(block.header.height);
+        let confirmations = current_height.saturating_sub(block.index);
         let total_fees = block.transactions.iter()
-            .map(|tx| tx.fee.unwrap_or_default())
+            .map(|tx| tx.fee.base_fee + tx.fee.per_byte_fee * tx.size.unwrap_or(0) as u64)
             .sum();
         
         Self {
@@ -177,13 +286,12 @@ impl TransactionResponse {
             TransactionStatus::Pending
         };
         
-        let fee_rate = transaction.fee.map(|fee| {
-            if size > 0 {
-                fee as f64 / size as f64
-            } else {
-                0.0
-            }
-        });
+        let fee_rate = if size > 0 {
+            let total_fee = transaction.fee.base_fee + transaction.fee.per_byte_fee * transaction.size.unwrap_or(0) as u64;
+            Some(total_fee as f64 / size as f64)
+        } else {
+            None
+        };
         
         Self {
             transaction,

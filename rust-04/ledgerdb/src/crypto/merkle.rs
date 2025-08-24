@@ -75,7 +75,7 @@ impl MerkleTree {
         // Create leaf hashes
         let leaves: Vec<Hash256> = leaf_data
             .iter()
-            .map(|data| crate::crypto::sha256_hash(data.as_ref()))
+            .map(|data| crate::crypto::hash_data(data.as_ref()))
             .collect();
 
         Self::from_hashes(&leaves)
@@ -158,7 +158,7 @@ impl MerkleTree {
             .iter()
             .position(|h| h == leaf_hash)
             .ok_or_else(|| CryptoError::LeafNotFound {
-                hash: leaf_hash.to_hex(),
+                index: 0, // Will be updated with actual index if needed
             })?;
 
         self.generate_proof_by_index(leaf_index)
@@ -169,7 +169,6 @@ impl MerkleTree {
         if leaf_index >= self.leaves.len() {
             return Err(CryptoError::InvalidLeafIndex {
                 index: leaf_index,
-                max_index: self.leaves.len() - 1,
             }
             .into());
         }
@@ -242,6 +241,21 @@ impl MerkleTree {
         self.leaves.contains(leaf_hash)
     }
 
+    /// Create a Merkle tree from transactions
+    pub fn from_transactions(transactions: &[crate::core::Transaction]) -> Result<Self> {
+        if transactions.is_empty() {
+            return Err(CryptoError::EmptyMerkleTree.into());
+        }
+
+        // Create hashes from transaction IDs
+        let tx_hashes: Vec<Hash256> = transactions
+            .iter()
+            .map(|tx| tx.hash())
+            .collect();
+
+        Self::from_hashes(&tx_hashes)
+    }
+
     /// Get the path from root to a specific leaf
     pub fn get_path_to_leaf(&self, leaf_hash: &Hash256) -> Result<Vec<Hash256>> {
         let leaf_index = self
@@ -249,7 +263,7 @@ impl MerkleTree {
             .iter()
             .position(|h| h == leaf_hash)
             .ok_or_else(|| CryptoError::LeafNotFound {
-                hash: leaf_hash.to_hex(),
+                index: 0, // Will be updated with actual index if needed
             })?;
 
         let mut path = vec![leaf_hash.clone()];

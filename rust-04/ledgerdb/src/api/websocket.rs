@@ -11,7 +11,7 @@ use axum::{
     extract::{ws::WebSocket, State, WebSocketUpgrade},
     response::Response,
 };
-use futures_util::{sink::SinkExt, stream::StreamExt};
+use futures_util::{sink::SinkExt, stream::{StreamExt, SplitSink, SplitStream}};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -431,16 +431,7 @@ async fn handle_mining_progress_websocket(socket: WebSocket, state: AppState) {
         let tx = tx.clone();
         tokio::spawn(async move {
             while let Ok(progress) = mining_progress_rx.recv().await {
-                let message = WsMessage::MiningProgress(MiningProgressData {
-                    block_height: progress.block_height,
-                    difficulty: progress.difficulty,
-                    nonce: progress.nonce,
-                    hash_rate: progress.hash_rate,
-                    progress: progress.progress,
-                    estimated_time: progress.estimated_time,
-                    attempts: progress.attempts,
-                    best_hash: progress.best_hash,
-                });
+                let message = WsMessage::MiningProgress(MiningProgressData::from(progress));
                 
                 if tx.send(message).is_err() {
                     break;
@@ -558,12 +549,12 @@ async fn handle_subscription_request(
 impl From<MiningProgress> for MiningProgressData {
     fn from(progress: MiningProgress) -> Self {
         Self {
-            block_height: progress.block_height,
-            difficulty: progress.difficulty,
-            nonce: progress.nonce,
+            block_height: 0, // TODO: Get from blockchain state
+            difficulty: progress.target_difficulty,
+            nonce: progress.current_nonce,
             hash_rate: progress.hash_rate,
-            progress: progress.progress,
-            estimated_time: progress.estimated_time,
+            progress: if progress.attempts > 0 { (progress.attempts as f64 / 1000000.0).min(100.0) } else { 0.0 },
+            estimated_time: progress.estimated_remaining_seconds.map(|s| s as u64),
             attempts: progress.attempts,
             best_hash: progress.best_hash,
         }
@@ -575,15 +566,15 @@ impl From<&Block> for NewBlockData {
     fn from(block: &Block) -> Self {
         let size = bincode::serialize(block).map(|b| b.len()).unwrap_or(0);
         let total_fees = block.transactions.iter()
-            .map(|tx| tx.fee.unwrap_or_default())
+            .map(|tx| tx.fee.calculate_total_fee(size))
             .sum();
         
         Self {
             hash: block.hash(),
-            height: block.header.height,
+            height: block.index,
             transaction_count: block.transactions.len(),
             size,
-            timestamp: block.header.timestamp,
+            timestamp: block.header.timestamp.timestamp() as u64,
             miner: None, // TODO: Extract miner from coinbase transaction
             reward: 50_000_000, // TODO: Calculate actual block reward
             total_fees,
@@ -596,25 +587,27 @@ impl From<&Block> for NewBlockData {
 impl From<&Transaction> for NewTransactionData {
     fn from(transaction: &Transaction) -> Self {
         let size = bincode::serialize(transaction).map(|b| b.len()).unwrap_or(0);
-        let total_input = transaction.inputs.iter()
-            .map(|input| input.amount)
-            .sum();
+        
+        // For inputs, we can't get the amount without UTXO set, so we'll use 0 for now
+        // In a real implementation, you'd need access to the UTXO set
+        let total_input = 0u64; // TODO: Calculate from UTXO set
+        
         let total_output = transaction.outputs.iter()
             .map(|output| output.amount)
             .sum();
         
-        let fee_rate = transaction.fee.map(|fee| {
-            if size > 0 {
-                fee as f64 / size as f64
-            } else {
-                0.0
-            }
-        });
+        let calculated_fee = transaction.fee.calculate_total_fee(size);
+        
+        let fee_rate = if size > 0 {
+            Some(calculated_fee as f64 / size as f64)
+        } else {
+            Some(0.0)
+        };
         
         Self {
             hash: transaction.hash(),
             size,
-            fee: transaction.fee,
+            fee: Some(calculated_fee),
             fee_rate,
             input_count: transaction.inputs.len(),
             output_count: transaction.outputs.len(),

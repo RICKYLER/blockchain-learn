@@ -71,19 +71,19 @@ impl PrivateKey {
             SignatureAlgorithm::EcdsaSecp256k1 => {
                 // TODO: Implement ECDSA public key derivation
                 // For now, use a simple hash-based derivation (NOT SECURE)
-                let pub_key_hash = crate::crypto::sha256_hash(&self.bytes);
+                let pub_key_hash = crate::crypto::hash_data(&self.bytes);
                 Ok(PublicKey::new(
-                    pub_key_hash.as_slice().to_vec(),
                     self.algorithm.clone(),
+                    pub_key_hash.as_slice().to_vec(),
                 ))
             }
             SignatureAlgorithm::Ed25519 => {
                 // TODO: Implement Ed25519 public key derivation
                 // For now, use a simple hash-based derivation (NOT SECURE)
-                let pub_key_hash = crate::crypto::sha256_hash(&self.bytes);
+                let pub_key_hash = crate::crypto::hash_data(&self.bytes);
                 Ok(PublicKey::new(
-                    pub_key_hash.as_slice().to_vec(),
                     self.algorithm.clone(),
+                    pub_key_hash.as_slice().to_vec(),
                 ))
             }
         }
@@ -95,27 +95,27 @@ impl PrivateKey {
             SignatureAlgorithm::EcdsaSecp256k1 => {
                 // TODO: Implement ECDSA signing
                 // For now, use a simple hash-based signature (NOT SECURE)
-                let message_hash = crate::crypto::sha256_hash(message);
+                let message_hash = crate::crypto::hash_data(message);
                 let signature_data = crate::crypto::hash_multiple(&[
                     &self.bytes,
                     message_hash.as_slice(),
                 ]);
                 Ok(Signature::new(
-                    signature_data.as_slice().to_vec(),
                     self.algorithm.clone(),
+                    signature_data.as_slice().to_vec(),
                 ))
             }
             SignatureAlgorithm::Ed25519 => {
                 // TODO: Implement Ed25519 signing
                 // For now, use a simple hash-based signature (NOT SECURE)
-                let message_hash = crate::crypto::sha256_hash(message);
+                let message_hash = crate::crypto::hash_data(message);
                 let signature_data = crate::crypto::hash_multiple(&[
                     &self.bytes,
                     message_hash.as_slice(),
                 ]);
                 Ok(Signature::new(
-                    signature_data.as_slice().to_vec(),
                     self.algorithm.clone(),
+                    signature_data.as_slice().to_vec(),
                 ))
             }
         }
@@ -129,7 +129,7 @@ impl PrivateKey {
     /// Create from hex string
     pub fn from_hex(hex_str: &str, algorithm: SignatureAlgorithm) -> Result<Self> {
         let bytes = hex::decode(hex_str).map_err(|_| CryptoError::InvalidHexString {
-            value: hex_str.to_string(),
+            hex_str: hex_str.to_string(),
         })?;
         Ok(Self::new(bytes, algorithm))
     }
@@ -255,7 +255,7 @@ impl KeyManager {
         let key_pair = self
             .get_key_pair(address)
             .ok_or_else(|| CryptoError::KeyNotFound {
-                address: address.to_hex(),
+                hash: address.to_hex(),
             })?;
         key_pair.sign(message)
     }

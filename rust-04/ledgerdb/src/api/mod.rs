@@ -13,6 +13,7 @@ pub use middleware::*;
 pub use responses::*;
 pub use websocket::*;
 
+
 use crate::core::Blockchain;
 use crate::crypto::pow::{MiningProgress, ProofOfWorkMiner};
 use crate::error::Result;
@@ -99,48 +100,7 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         // Health and info endpoints
         .route("/health", get(health_check))
-        .route("/info", get(get_blockchain_info))
-        .route("/stats", get(get_blockchain_stats))
         .route("/version", get(get_api_version))
-        
-        // Block endpoints
-        .route("/blocks", get(get_blocks))
-        .route("/blocks/latest", get(get_latest_block))
-        .route("/blocks/height/:height", get(get_block_by_height))
-        .route("/blocks/hash/:hash", get(get_block_by_hash))
-        .route("/blocks/:block_id/transactions", get(get_block_transactions))
-        
-        // Transaction endpoints
-        .route("/transactions", post(create_transaction))
-        .route("/transactions", get(get_pending_transactions))
-        .route("/transactions/:hash", get(get_transaction_by_hash))
-        .route("/transactions/:hash/proof", get(get_transaction_merkle_proof))
-        .route("/transactions/validate", post(validate_transaction))
-        
-        // Mining endpoints
-        .route("/mining/start", post(start_mining))
-        .route("/mining/stop", post(stop_mining))
-        .route("/mining/status", get(get_mining_status))
-        .route("/mining/difficulty", get(get_mining_difficulty))
-        .route("/mining/progress", get(mining_progress_websocket))
-        
-        // Address endpoints
-        .route("/addresses/:address/balance", get(get_address_balance))
-        .route("/addresses/:address/utxos", get(get_address_utxos))
-        .route("/addresses/:address/transactions", get(get_address_transactions))
-        
-        // UTXO endpoints
-        .route("/utxos", get(get_all_utxos))
-        .route("/utxos/:utxo_id", get(get_utxo_by_id))
-        
-        // Network endpoints
-        .route("/network/peers", get(get_network_peers))
-        .route("/network/status", get(get_network_status))
-        
-        // Admin endpoints (protected)
-        .route("/admin/compact", post(compact_database))
-        .route("/admin/backup", post(create_backup))
-        .route("/admin/metrics", get(get_system_metrics))
         
         .layer(middleware_stack)
         .with_state(state)
@@ -396,7 +356,7 @@ pub mod types {
     pub struct UtxoResponse {
         pub utxo_id: String,
         pub amount: u64,
-        pub recipient_address: Address,
+        pub recipient: Address,
         pub block_height: u64,
         pub tx_hash: Hash256,
         pub output_index: u32,

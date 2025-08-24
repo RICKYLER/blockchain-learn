@@ -15,7 +15,7 @@ use axum::{
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 use tokio::time::sleep;
@@ -30,6 +30,7 @@ mod api;
 mod config;
 mod core;
 mod crypto;
+mod error;
 mod storage;
 mod utils;
 
@@ -39,33 +40,26 @@ use api::{
     responses::*,
     websocket::*,
 };
-use core::{
+use crate::core::{
     blockchain::Blockchain,
     block::Block,
     transaction::Transaction,
 };
-use crypto::{
-    pow::ProofOfWork,
+use crate::crypto::{
+    pow::{ProofOfWorkMiner, MiningProgress},
     Hash256,
     Address,
     PublicKey,
     SignatureAlgorithm,
 };
-use storage::Storage;
-use utils::{
-    time::get_current_timestamp,
+use crate::storage::PersistentStorage;
+use crate::utils::{
+    time::current_timestamp,
     format::format_hash,
-    validation::validate_transaction_amount,
 };
 
-/// Application state shared across handlers
-#[derive(Clone)]
-pub struct AppState {
-    pub blockchain: Arc<Mutex<Blockchain>>,
-    pub storage: Arc<Mutex<Storage>>,
-    pub websocket_manager: Arc<Mutex<WebSocketManager>>,
-    pub pow: Arc<ProofOfWork>,
-}
+// Use the AppState from the api module
+use api::AppState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,9 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     println!("🚀 Starting LedgerDB blockchain...");
     
-    // Initialize components
-    let storage = Arc::new(Mutex::new(Storage::new("./data".to_string())));
-    
+    // Initialize storage
+    let storage = Arc::new(PersistentStorage::new("./data".to_string()).expect("Failed to initialize storage"));
+
     // Create a genesis address
     let genesis_public_key = PublicKey::new(
         SignatureAlgorithm::EcdsaSecp256k1,
@@ -85,21 +79,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let genesis_address = Address::from_public_key(&genesis_public_key);
     
     // Create blockchain config
-    let config = core::blockchain::BlockchainConfig::default();
+    let config = crate::core::blockchain::BlockchainConfig::default();
     
-    let blockchain = Arc::new(Mutex::new(
-        Blockchain::new(config.clone(), genesis_address.clone())
-            .expect("Failed to create blockchain")
+    // Initialize blockchain
+    let blockchain = Arc::new(tokio::sync::RwLock::new(
+        Blockchain::new(config, genesis_address).expect("Failed to create blockchain")
     ));
-    let websocket_manager = Arc::new(Mutex::new(WebSocketManager::new()));
-    let pow = Arc::new(ProofOfWork::new(4)); // Start with difficulty 4
-    
+
+    // Initialize mining progress broadcaster
+    let (mining_progress_tx, _) = tokio::sync::broadcast::channel::<MiningProgress>(100);
+
+    // Initialize miner
+    let miner = Arc::new(tokio::sync::RwLock::new(None::<ProofOfWorkMiner>));
+
+    // Create API config
+    let config = api::ApiConfig::default();
+
     // Create application state
-    let app_state = AppState {
+    let app_state = api::AppState {
         blockchain: blockchain.clone(),
         storage: storage.clone(),
-        websocket_manager: websocket_manager.clone(),
-        pow: pow.clone(),
+        mining_progress_tx,
+        miner,
+        config,
     };
     
     // The blockchain is already initialized with genesis block in Blockchain::new()
@@ -222,7 +224,7 @@ async fn websocket_handler(
 
 /// Handle WebSocket connections
 async fn handle_websocket(socket: WebSocket, state: AppState) {
-    let mut manager = state.websocket_manager.lock().unwrap();
+
     let connection_id = manager.add_connection();
     drop(manager);
     
@@ -234,7 +236,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState) {
     }
     
     // Clean up connection
-    let mut manager = state.websocket_manager.lock().unwrap();
+
     manager.remove_connection(&connection_id);
     println!("🔌 WebSocket connection closed: {}", connection_id);
 }

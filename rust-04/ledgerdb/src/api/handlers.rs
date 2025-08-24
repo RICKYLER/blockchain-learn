@@ -4,11 +4,10 @@
 //! including block operations, transaction management, mining, and administrative functions.
 
 use super::{
-    types::*, ApiError, AppState, PaginatedResponse, PaginationParams,
+    responses::*, ApiError, AppState, PaginatedResponse, PaginationParams,
 };
 use crate::core::{Block, Transaction};
 use crate::crypto::{Address, Hash256};
-use crate::error::Result;
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
     http::StatusCode,
@@ -20,7 +19,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Health check endpoint
-pub async fn health_check(State(state): State<AppState>) -> Result<Json<HealthResponse>, ApiError> {
+pub async fn health_check() -> Json<HealthResponse> {
     let uptime = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -29,11 +28,11 @@ pub async fn health_check(State(state): State<AppState>) -> Result<Json<HealthRe
     let response = HealthResponse {
         status: "healthy".to_string(),
         timestamp: Utc::now(),
-        version: state.config.version.clone(),
+        version: "1.0.0".to_string(),
         uptime,
     };
 
-    Ok(Json(response))
+    Json(response)
 }
 
 /// Get API version
@@ -49,13 +48,13 @@ pub async fn get_api_version(State(state): State<AppState>) -> Json<serde_json::
 /// Get blockchain information
 pub async fn get_blockchain_info(
     State(state): State<AppState>,
-) -> Result<Json<BlockchainInfoResponse>, ApiError> {
+) -> std::result::Result<Json<BlockchainInfoResponse>, ApiError> {
     let blockchain = state.blockchain.read().await;
     let stats = blockchain.get_stats();
     
     let response = BlockchainInfoResponse {
         height: stats.height,
-        latest_block_hash: blockchain.get_latest_block_hash(),
+        latest_block_hash: blockchain.get_latest_block().map(|b| b.hash()).unwrap_or_default(),
         total_transactions: stats.total_transactions,
         total_supply: stats.total_supply,
         difficulty: blockchain.get_current_difficulty(),
@@ -68,7 +67,7 @@ pub async fn get_blockchain_info(
 /// Get blockchain statistics
 pub async fn get_blockchain_stats(
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
     let blockchain = state.blockchain.read().await;
     let stats = blockchain.get_stats();
     let storage_stats = state.storage.get_stats().await.map_err(ApiError::from)?;
@@ -76,7 +75,7 @@ pub async fn get_blockchain_stats(
     let response = json!({
         "blockchain": {
             "height": stats.height,
-            "total_blocks": stats.total_blocks,
+            "total_blocks": stats.height,
             "total_transactions": stats.total_transactions,
             "total_supply": stats.total_supply,
             "average_block_time": stats.average_block_time,
@@ -101,12 +100,12 @@ pub async fn get_blockchain_stats(
 pub async fn get_blocks(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
-) -> Result<Json<PaginatedResponse<Block>>, ApiError> {
+) -> std::result::Result<Json<PaginatedResponse<Block>>, ApiError> {
     let blockchain = state.blockchain.read().await;
     let page = params.page.unwrap_or(0);
     let limit = params.limit.unwrap_or(20).min(100); // Cap at 100
     
-    let total_blocks = blockchain.get_height();
+    let total_blocks = blockchain.height();
     let start_height = if page * limit > total_blocks {
         return Ok(Json(super::paginate(vec![], page, limit, total_blocks)));
     } else {
@@ -115,7 +114,7 @@ pub async fn get_blocks(
     
     let mut blocks = Vec::new();
     for height in start_height..start_height + limit.min(total_blocks - start_height) {
-        if let Some(block) = blockchain.get_block_by_height(height) {
+        if let Some(block) = blockchain.get_block_by_index(height) {
             blocks.push(block);
         }
     }
@@ -131,11 +130,12 @@ pub async fn get_blocks(
 /// Get latest block
 pub async fn get_latest_block(
     State(state): State<AppState>,
-) -> Result<Json<Block>, ApiError> {
+) -> std::result::Result<Json<Block>, ApiError> {
     let blockchain = state.blockchain.read().await;
     
     blockchain
         .get_latest_block()
+        .cloned()
         .map(Json)
         .ok_or_else(|| ApiError::new("NOT_FOUND", "No blocks found"))
 }
@@ -144,11 +144,12 @@ pub async fn get_latest_block(
 pub async fn get_block_by_height(
     State(state): State<AppState>,
     Path(height): Path<u64>,
-) -> Result<Json<Block>, ApiError> {
+) -> std::result::Result<Json<Block>, ApiError> {
     let blockchain = state.blockchain.read().await;
     
     blockchain
-        .get_block_by_height(height)
+        .get_block_by_index(height)
+        .cloned()
         .map(Json)
         .ok_or_else(|| ApiError::new("NOT_FOUND", format!("Block at height {} not found", height)))
 }
@@ -157,7 +158,7 @@ pub async fn get_block_by_height(
 pub async fn get_block_by_hash(
     State(state): State<AppState>,
     Path(hash): Path<String>,
-) -> Result<Json<Block>, ApiError> {
+) -> std::result::Result<Json<Block>, ApiError> {
     let hash = Hash256::from_hex(&hash)
         .map_err(|_| ApiError::new("INVALID_HASH", "Invalid block hash format"))?;
     
@@ -165,6 +166,7 @@ pub async fn get_block_by_hash(
     
     blockchain
         .get_block_by_hash(&hash)
+        .cloned()
         .map(Json)
         .ok_or_else(|| ApiError::new("NOT_FOUND", "Block not found"))
 }
@@ -173,12 +175,12 @@ pub async fn get_block_by_hash(
 pub async fn get_block_transactions(
     State(state): State<AppState>,
     Path(block_id): Path<String>,
-) -> Result<Json<Vec<Transaction>>, ApiError> {
+) -> std::result::Result<Json<Vec<Transaction>>, ApiError> {
     let blockchain = state.blockchain.read().await;
     
     // Try to parse as height first, then as hash
     let block = if let Ok(height) = block_id.parse::<u64>() {
-        blockchain.get_block_by_height(height)
+        blockchain.get_block_by_index(height)
     } else if let Ok(hash) = Hash256::from_hex(&block_id) {
         blockchain.get_block_by_hash(&hash)
     } else {
@@ -194,7 +196,7 @@ pub async fn get_block_transactions(
 pub async fn create_transaction(
     State(state): State<AppState>,
     Json(request): Json<CreateTransactionRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
     // TODO: Implement transaction creation from request
     // This would involve:
     // 1. Validating inputs and outputs
@@ -209,7 +211,7 @@ pub async fn create_transaction(
 pub async fn get_pending_transactions(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
-) -> Result<Json<PaginatedResponse<Transaction>>, ApiError> {
+) -> std::result::Result<Json<PaginatedResponse<Transaction>>, ApiError> {
     let blockchain = state.blockchain.read().await;
     let pending_txs = blockchain.get_pending_transactions();
     
@@ -233,14 +235,14 @@ pub async fn get_pending_transactions(
 pub async fn get_transaction_by_hash(
     State(state): State<AppState>,
     Path(hash): Path<String>,
-) -> Result<Json<Transaction>, ApiError> {
+) -> std::result::Result<Json<Transaction>, ApiError> {
     let hash = Hash256::from_hex(&hash)
         .map_err(|_| ApiError::new("INVALID_HASH", "Invalid transaction hash format"))?;
     
     let blockchain = state.blockchain.read().await;
     
     blockchain
-        .get_transaction_by_hash(&hash)
+        .get_transaction(&hash)
         .map(Json)
         .ok_or_else(|| ApiError::new("NOT_FOUND", "Transaction not found"))
 }
@@ -249,7 +251,7 @@ pub async fn get_transaction_by_hash(
 pub async fn get_transaction_merkle_proof(
     State(state): State<AppState>,
     Path(hash): Path<String>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
     let hash = Hash256::from_hex(&hash)
         .map_err(|_| ApiError::new("INVALID_HASH", "Invalid transaction hash format"))?;
     
@@ -267,7 +269,7 @@ pub async fn get_transaction_merkle_proof(
     Ok(Json(json!({
         "transaction_hash": hash,
         "block_hash": block.hash(),
-        "block_height": block.header.height,
+        "block_height": block.index,
         "transaction_index": tx_index,
         "merkle_proof": proof,
         "merkle_root": block.header.merkle_root
@@ -278,10 +280,20 @@ pub async fn get_transaction_merkle_proof(
 pub async fn validate_transaction(
     State(state): State<AppState>,
     Json(transaction): Json<Transaction>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
     let blockchain = state.blockchain.read().await;
     
-    match blockchain.validate_transaction(&transaction) {
+    // Create UTXO map for validation
+    let utxo_map: std::collections::HashMap<String, crate::core::TransactionOutput> = blockchain
+        .get_all_utxos()
+        .iter()
+        .map(|utxo| {
+            let key = format!("{}:{}", utxo.tx_hash, utxo.output_index);
+            (key, utxo.output.clone())
+        })
+        .collect();
+    
+    match transaction.validate(&utxo_map) {
         Ok(_) => Ok(Json(json!({
             "valid": true,
             "message": "Transaction is valid"
@@ -297,7 +309,7 @@ pub async fn validate_transaction(
 pub async fn start_mining(
     State(state): State<AppState>,
     Json(request): Json<StartMiningRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
     // TODO: Implement mining start
     Err(ApiError::new("NOT_IMPLEMENTED", "Mining start not yet implemented"))
 }
@@ -305,7 +317,7 @@ pub async fn start_mining(
 /// Stop mining
 pub async fn stop_mining(
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
     // TODO: Implement mining stop
     Err(ApiError::new("NOT_IMPLEMENTED", "Mining stop not yet implemented"))
 }
@@ -313,16 +325,15 @@ pub async fn stop_mining(
 /// Get mining status
 pub async fn get_mining_status(
     State(state): State<AppState>,
-) -> Result<Json<MiningStatusResponse>, ApiError> {
+) -> std::result::Result<Json<MiningStatusResponse>, ApiError> {
     let miner = state.miner.read().await;
     let blockchain = state.blockchain.read().await;
     
     let response = MiningStatusResponse {
         is_mining: miner.is_some(),
-        current_block_height: Some(blockchain.get_height()),
-        difficulty: Some(blockchain.get_current_difficulty()),
-        hash_rate: None, // TODO: Calculate actual hash rate
-        estimated_time: None, // TODO: Calculate estimated time
+        current_block_height: blockchain.height(),
+        difficulty: blockchain.get_current_difficulty(),
+        hash_rate: 0.0,
     };
     
     Ok(Json(response))
@@ -331,7 +342,7 @@ pub async fn get_mining_status(
 /// Get mining difficulty
 pub async fn get_mining_difficulty(
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
     let blockchain = state.blockchain.read().await;
     let difficulty = blockchain.get_current_difficulty();
     
@@ -346,19 +357,19 @@ pub async fn get_mining_difficulty(
 pub async fn get_address_balance(
     State(state): State<AppState>,
     Path(address): Path<String>,
-) -> Result<Json<AddressBalanceResponse>, ApiError> {
+) -> std::result::Result<Json<AddressBalanceResponse>, ApiError> {
     let address = Address::from_string(&address)
         .map_err(|_| ApiError::new("INVALID_ADDRESS", "Invalid address format"))?;
     
     let blockchain = state.blockchain.read().await;
     let utxos = blockchain.get_utxos_for_address(&address);
-    let balance = utxos.iter().map(|utxo| utxo.amount).sum();
+    let balance = utxos.iter().map(|utxo| utxo.output.amount).sum();
     
     let response = AddressBalanceResponse {
         address,
         balance,
         utxo_count: utxos.len(),
-        last_updated: Utc::now(),
+
     };
     
     Ok(Json(response))
@@ -368,7 +379,7 @@ pub async fn get_address_balance(
 pub async fn get_address_utxos(
     State(state): State<AppState>,
     Path(address): Path<String>,
-) -> Result<Json<Vec<UtxoResponse>>, ApiError> {
+) -> std::result::Result<Json<Vec<UtxoResponse>>, ApiError> {
     let address = Address::from_string(&address)
         .map_err(|_| ApiError::new("INVALID_ADDRESS", "Invalid address format"))?;
     
@@ -379,12 +390,14 @@ pub async fn get_address_utxos(
         .into_iter()
         .map(|utxo| UtxoResponse {
             utxo_id: format!("{}:{}", utxo.tx_hash, utxo.output_index),
-            amount: utxo.amount,
-            recipient_address: utxo.recipient_address,
+            amount: utxo.output.amount,
+            address: utxo.output.recipient.clone(),
+            recipient: utxo.output.recipient,
             block_height: utxo.block_height,
             tx_hash: utxo.tx_hash,
             output_index: utxo.output_index,
-            is_spent: false, // UTXOs in our set are unspent by definition
+            is_spent: false,
+
         })
         .collect();
     
@@ -396,7 +409,7 @@ pub async fn get_address_transactions(
     State(state): State<AppState>,
     Path(address): Path<String>,
     Query(params): Query<PaginationParams>,
-) -> Result<Json<PaginatedResponse<Transaction>>, ApiError> {
+) -> std::result::Result<Json<PaginatedResponse<Transaction>>, ApiError> {
     let address = Address::from_string(&address)
         .map_err(|_| ApiError::new("INVALID_ADDRESS", "Invalid address format"))?;
     
@@ -410,7 +423,7 @@ pub async fn get_address_transactions(
 pub async fn get_all_utxos(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
-) -> Result<Json<PaginatedResponse<UtxoResponse>>, ApiError> {
+) -> std::result::Result<Json<PaginatedResponse<UtxoResponse>>, ApiError> {
     let blockchain = state.blockchain.read().await;
     let all_utxos = blockchain.get_all_utxos();
     
@@ -426,12 +439,14 @@ pub async fn get_all_utxos(
             .iter()
             .map(|utxo| UtxoResponse {
                 utxo_id: format!("{}:{}", utxo.tx_hash, utxo.output_index),
-                amount: utxo.amount,
-                recipient_address: utxo.recipient_address.clone(),
+                amount: utxo.output.amount,
+                address: utxo.output.recipient.clone(),
+                recipient: utxo.output.recipient.clone(),
                 block_height: utxo.block_height,
                 tx_hash: utxo.tx_hash,
                 output_index: utxo.output_index,
                 is_spent: false,
+    
             })
             .collect()
     } else {
@@ -445,7 +460,7 @@ pub async fn get_all_utxos(
 pub async fn get_utxo_by_id(
     State(state): State<AppState>,
     Path(utxo_id): Path<String>,
-) -> Result<Json<UtxoResponse>, ApiError> {
+) -> std::result::Result<Json<UtxoResponse>, ApiError> {
     // Parse UTXO ID (format: "tx_hash:output_index")
     let parts: Vec<&str> = utxo_id.split(':').collect();
     if parts.len() != 2 {
@@ -460,11 +475,13 @@ pub async fn get_utxo_by_id(
     
     let blockchain = state.blockchain.read().await;
     
-    if let Some(utxo) = blockchain.get_utxo(&tx_hash, output_index) {
+    let utxo_id = crate::core::UtxoId::new(tx_hash, output_index);
+    if let Some(utxo) = blockchain.get_utxo(&utxo_id) {
         let response = UtxoResponse {
-            utxo_id,
-            amount: utxo.amount,
-            recipient_address: utxo.recipient_address,
+            utxo_id: utxo_id.to_string(),
+            amount: utxo.output.amount,
+            address: utxo.output.recipient.clone(),
+            recipient: utxo.output.recipient,
             block_height: utxo.block_height,
             tx_hash: utxo.tx_hash,
             output_index: utxo.output_index,
@@ -479,7 +496,7 @@ pub async fn get_utxo_by_id(
 /// Get network peers (placeholder)
 pub async fn get_network_peers(
     State(_state): State<AppState>,
-) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+) -> std::result::Result<Json<Vec<serde_json::Value>>, ApiError> {
     // TODO: Implement peer management
     Ok(Json(vec![]))
 }
@@ -487,14 +504,13 @@ pub async fn get_network_peers(
 /// Get network status
 pub async fn get_network_status(
     State(state): State<AppState>,
-) -> Result<Json<NetworkStatusResponse>, ApiError> {
+) -> std::result::Result<Json<NetworkStatusResponse>, ApiError> {
     let blockchain = state.blockchain.read().await;
     
     let response = NetworkStatusResponse {
-        connected_peers: 0, // TODO: Implement peer counting
-        network_height: blockchain.get_height(),
-        sync_status: "synced".to_string(), // TODO: Implement sync status
-        last_sync: Utc::now(),
+        peer_count: 0,
+        is_synced: false,
+        sync_progress: 0.0,
     };
     
     Ok(Json(response))
@@ -503,7 +519,7 @@ pub async fn get_network_status(
 /// Compact database (admin endpoint)
 pub async fn compact_database(
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
     // TODO: Implement database compaction
     Err(ApiError::new("NOT_IMPLEMENTED", "Database compaction not yet implemented"))
 }
@@ -511,15 +527,16 @@ pub async fn compact_database(
 /// Create backup (admin endpoint)
 pub async fn create_backup(
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
     // TODO: Implement backup creation
     Err(ApiError::new("NOT_IMPLEMENTED", "Backup creation not yet implemented"))
 }
 
 /// Get system metrics (admin endpoint)
+#[axum::debug_handler]
 pub async fn get_system_metrics(
     State(state): State<AppState>,
-) -> Result<Json<SystemMetricsResponse>, ApiError> {
+) -> std::result::Result<Json<SystemMetricsResponse>, ApiError> {
     // TODO: Implement system metrics collection
     let response = SystemMetricsResponse {
         memory_usage: 0,
@@ -528,10 +545,9 @@ pub async fn get_system_metrics(
         network_io: NetworkIoMetrics {
             bytes_sent: 0,
             bytes_received: 0,
-            requests_per_second: 0.0,
+            packets_sent: 0,
+            packets_received: 0,
         },
-        database_size: 0,
-        active_connections: 0,
     };
     
     Ok(Json(response))
